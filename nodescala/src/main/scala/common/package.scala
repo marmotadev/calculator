@@ -1,4 +1,5 @@
 import java.io.File
+import scala.concurrent.Future
 
 package object common {
 
@@ -38,3 +39,4 @@ package object common {
       None
   }
 }
+

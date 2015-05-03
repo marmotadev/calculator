@@ -1,19 +1,19 @@
 package nodescala
 
 import scala.language.postfixOps
-import scala.util.{Try, Success, Failure}
+import scala.util.{ Try, Success, Failure }
 import scala.collection._
 import scala.concurrent._
 import ExecutionContext.Implicits.global
 import scala.concurrent.duration._
-import scala.async.Async.{async, await}
+import scala.async.Async.{ async, await }
 import org.scalatest._
 import NodeScala._
 import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
 
 @RunWith(classOf[JUnitRunner])
-class NodeScalaSuite extends FunSuite {
+class NodeScalaSuite extends FunSuite with Matchers {
 
   test("A Future should always be completed") {
     val always = Future.always(517)
@@ -31,8 +31,129 @@ class NodeScalaSuite extends FunSuite {
     }
   }
 
-  
-  
+  test("All should return all") {
+    val always = Future.all(List(
+      Future.always(6),
+      Future {
+        Thread.sleep(100);
+        5
+      }))
+
+    val one :: two :: Nil = Await.result(always, 1 second)
+    one should equal(6)
+    two should equal(5)
+  }
+
+  test("First future returned first") {
+    val r = Future.any(List(
+      Future {
+        Thread.sleep(500)
+        "Second"
+      },
+      Future {
+        Thread.sleep(100);
+        "First"
+      }))
+
+    val one = Await.result(r, 1 second)
+    one should equal("First")
+
+  }
+
+  test("Delay returns value after delay") {
+    var f = Future.delay(10 millisecond)
+
+    intercept[TimeoutException] {
+      val one = Await.result(f, 1 millisecond)
+    }
+
+    f = Future.delay(10 millisecond)
+
+    Await.result(f, 1000 millisecond)
+
+  }
+
+  def cancelableFunction(f: Future[Unit]) = (ct: CancellationToken) => {
+
+  }
+  test("After canncellable is canceled, it is not completed") {
+
+    var cf: CancellationToken => Future[Unit] = ct => Future {
+      println("Sleeping")
+      //      Thread.sleep(500)
+      if (ct.isCancelled) {
+        println("canceled")
+        throw new RuntimeException("Canceled execution")
+      } else
+        println("non canceled")
+
+    }
+
+    var s: Subscription = Future.run()(cf)
+    //    var res = s.unsubscribe()
+    println("RES:" + s)
+
+  }
+
+  test("continueWith") {
+    val first: Future[Int] = Future[Int] {
+        Thread.sleep(100)
+        5
+    }
+    val second: (Future[Int]) => String = (f1: Future[Int]) => {
+        def numtos(num: Int) = {
+          num match {
+            case 1 => "First"
+            case 5 => "Five"
+            case 0 => "Zero"
+          }
+        }
+        val p = Promise[String]()
+
+        f1 onComplete {
+          case Success(num) =>
+            p complete {
+              Try {
+                numtos(num)
+              }
+            }
+        }
+        Await.result(p.future, Duration.Inf)
+    }
+    val resultFuture: Future[String] = first.continueWith(second)
+    val r = Await.result(resultFuture, Duration.Inf)
+    
+    r should be ("Five")
+  }
+
+   test("Future.continueWith should handle exceptions thrown by the user specified continuation function") {
+    val first: Future[Int] = Future[Int] {
+      try {
+        println("First start")
+        Thread.sleep(100)
+        5
+      } finally println("first finished")
+    }
+    val second: (Future[Int]) => String = (f1: Future[Int]) => {
+      try {
+        
+        val p = Promise[String]()
+
+        f1 onComplete {
+          throw new RuntimeException("Test errors")
+        }
+        Await.result(p.future, Duration.Inf)
+      } finally { println("second finished") }
+    }
+    val resultFuture: Future[String] = first.continueWith(second)
+    println("Before getting final")
+    Await.ready(resultFuture, Duration.Inf)
+
+    val r = Await.result(resultFuture.failed, Duration.Inf)
+    
+     assert (r.isInstanceOf[RuntimeException])
+     r.getMessage should be ("Test errors")
+  }
   class DummyExchange(val request: Request) extends Exchange {
     @volatile var response = ""
     val loaded = Promise[String]()
@@ -91,6 +212,7 @@ class NodeScalaSuite extends FunSuite {
       l.emit(req)
     }
   }
+  
   test("Server should serve requests") {
     val dummy = new DummyServer(8191)
     val dummySubscription = dummy.start("/testDir") {
