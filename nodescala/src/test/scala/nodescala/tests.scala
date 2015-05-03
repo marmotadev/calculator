@@ -77,56 +77,54 @@ class NodeScalaSuite extends FunSuite with Matchers {
 
   }
   test("After canncellable is canceled, it is not completed") {
-
+ 
     var cf: CancellationToken => Future[Unit] = ct => Future {
-      println("Sleeping")
-      //      Thread.sleep(500)
-      if (ct.isCancelled) {
-        println("canceled")
-        throw new RuntimeException("Canceled execution")
-      } else
-        println("non canceled")
-
+      blocking {
+    	  println("LONG EXECUTION START")
+        Thread.sleep(10000)
+        println("LONG EXECUTION END")
+      }
     }
 
     var s: Subscription = Future.run()(cf)
-    //    var res = s.unsubscribe()
-    println("RES:" + s)
+    println("started cancelable")
+    var res = s.unsubscribe()
+    println("unsubscribed")
 
   }
 
   test("continueWith") {
     val first: Future[Int] = Future[Int] {
-        Thread.sleep(100)
-        5
+      Thread.sleep(100)
+      5
     }
     val second: (Future[Int]) => String = (f1: Future[Int]) => {
-        def numtos(num: Int) = {
-          num match {
-            case 1 => "First"
-            case 5 => "Five"
-            case 0 => "Zero"
-          }
+      def numtos(num: Int) = {
+        num match {
+          case 1 => "First"
+          case 5 => "Five"
+          case 0 => "Zero"
         }
-        val p = Promise[String]()
+      }
+      val p = Promise[String]()
 
-        f1 onComplete {
-          case Success(num) =>
-            p complete {
-              Try {
-                numtos(num)
-              }
+      f1 onComplete {
+        case Success(num) =>
+          p complete {
+            Try {
+              numtos(num)
             }
-        }
-        Await.result(p.future, Duration.Inf)
+          }
+      }
+      Await.result(p.future, Duration.Inf)
     }
     val resultFuture: Future[String] = first.continueWith(second)
     val r = Await.result(resultFuture, Duration.Inf)
-    
-    r should be ("Five")
+
+    r should be("Five")
   }
 
-   test("Future.continueWith should handle exceptions thrown by the user specified continuation function") {
+  test("Future.continueWith should handle exceptions thrown by the user specified continuation function") {
     val first: Future[Int] = Future[Int] {
       try {
         println("First start")
@@ -136,7 +134,7 @@ class NodeScalaSuite extends FunSuite with Matchers {
     }
     val second: (Future[Int]) => String = (f1: Future[Int]) => {
       try {
-        
+
         val p = Promise[String]()
 
         f1 onComplete {
@@ -150,9 +148,9 @@ class NodeScalaSuite extends FunSuite with Matchers {
     Await.ready(resultFuture, Duration.Inf)
 
     val r = Await.result(resultFuture.failed, Duration.Inf)
-    
-     assert (r.isInstanceOf[RuntimeException])
-     r.getMessage should be ("Test errors")
+
+    assert(r.isInstanceOf[RuntimeException])
+    r.getMessage should be("Test errors")
   }
   class DummyExchange(val request: Request) extends Exchange {
     @volatile var response = ""
@@ -212,7 +210,7 @@ class NodeScalaSuite extends FunSuite with Matchers {
       l.emit(req)
     }
   }
-  
+
   test("Server should serve requests") {
     val dummy = new DummyServer(8191)
     val dummySubscription = dummy.start("/testDir") {

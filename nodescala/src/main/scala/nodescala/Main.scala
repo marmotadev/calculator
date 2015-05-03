@@ -22,7 +22,7 @@ object Main {
       f => "You entered... " + f.now
     }
 
-    // TO IMPLEMENT
+    // TO IMPLEMENT§
     // 3. create a future that completes after 20 seconds
     //    and continues with a `"Server timeout!"` message
     val timeOut: Future[String] = Future.delay(Duration(20, SECONDS)).continueWith(f => "Server timeout!")
@@ -35,7 +35,10 @@ object Main {
     // TO IMPLEMENT
     // 5. unsubscribe from the server
     terminationRequested onSuccess {
-      case msg => println(s"Server suspended with: $msg")
+      case msg => {
+        myServerSubscription.unsubscribe()
+        println(s"Server suspended with: $msg")
+      }
     }
   }
 

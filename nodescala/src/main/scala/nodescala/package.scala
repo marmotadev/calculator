@@ -50,11 +50,8 @@ package object nodescala {
      *
      *  may return a `Future` succeeded with `1`, `2` or failed with an `Exception`.
      */
-    def any[T](fs: List[Future[T]]): Future[T] = Future {
-      //      fs foreach {
-      //        x => x.onComplete { y => ret = y.get }
-      //      }
-      Await.result(Future.firstCompletedOf(fs), Duration.Inf)
+    def any[T](fs: List[Future[T]]): Future[T] = {
+      Future.firstCompletedOf(fs)
     }
 
     /**
@@ -79,9 +76,19 @@ package object nodescala {
      * Creates a cancellable context for an execution and runs it.
      */
     def run()(f: CancellationToken => Future[Unit]): Subscription = {
-      val cts: CancellationTokenSource = CancellationTokenSource.apply()
-      f(cts.cancellationToken)
-
+      
+      val cts: CancellationTokenSource = CancellationTokenSource()
+      
+      val futureWait = Future {
+        blocking {  
+          while (cts.cancellationToken.nonCancelled) {
+        	  Thread.sleep(100)
+            println("Took a nap ..")            
+          }
+          println("Aha! Canceled")
+        }
+      }
+      Future.any(List(f(cts.cancellationToken),futureWait))
       cts
     }
 
