@@ -10,6 +10,9 @@ import scala.collection.JavaConversions._
 import java.util.concurrent.{ Executor, ThreadPoolExecutor, TimeUnit, LinkedBlockingQueue }
 import com.sun.net.httpserver.{ HttpExchange, HttpHandler, HttpServer }
 import java.net.InetSocketAddress
+import scala.util.Try
+import scala.util.Success
+import scala.util.Failure
 
 /**
  * Contains utilities common to the NodeScala© framework.
@@ -60,38 +63,62 @@ trait NodeScala {
     val l = createListener(relativePath)
     val sub = l.start()
     val ct = CancellationTokenSource()
-    val sub2 = Subscription(ct, sub)
 
-    def exchangeFuture(prev: Future[(NodeScala.Request, NodeScala.Exchange)]) = {
-//      prev.onSuccess(pf)
-    }
-//    val servingFuture =
-      Future {
-        while (true) {
+    val responsePromise = Promise[Unit]()
 
-          //          Future.any(List(
-          l.nextRequest().continueWith {
-            
-            x => 
-//              x.continueWith (Future {
-//              
-//            })
-              blocking {
-                for ((req, ex) <- x) {
-//                	Future.delay(Duration(999, TimeUnit.MILLISECONDS)).continueWith (Future { ex.close() })
-
-                  println("Got new request: " + req)
-                  val resp = handler(req)
-                  respond(ex, ct.cancellationToken, resp)
-                }
-              }
-          }
-          //            , Future.delay(Duration(20, TimeUnit.SECONDS))))
-        }
+    val breakingSub = new Subscription() {
+      def unsubscribe() = {
+        println("Someone UNSUBSCRIBED")
+        responsePromise.complete(Try({}))
       }
-    sub2
-  }
+    }
+    def takeNewReqFutureAndProcess(): Subscription = {
+      Future {
+        var requestFuture: Future[(NodeScala.Request, NodeScala.Exchange)] = l.nextRequest()
 
+        val singleRespFuture = requestFuture.continueWith {
+
+          requestAndExchange =>
+            requestAndExchange onComplete {
+              case Success(exec) =>
+
+                val (req, ex) = exec
+
+                println("New request (will start processing: " + req)
+                val resp = handler(req)
+                println(s"Processed: $req")
+                respond(ex, ct.cancellationToken, resp)
+                println(s"Responded with $resp to $req")
+
+              case Failure(t) => println("An error has occured: " + t.getMessage)
+            }
+
+        } // continueWith
+
+        singleRespFuture onComplete {
+          re =>
+            println("Request finished (will spawn new future):" + re)
+            takeNewReqFutureAndProcess()
+        }
+
+        responsePromise.future onComplete {
+          re => println("Request canceled")
+        }
+
+        val timeOut = Future.delay(Duration(500, TimeUnit.MILLISECONDS))
+        timeOut onComplete {
+          re => println("Request timeouted!")
+        }
+        val firstThatComes = Future.any(List(responsePromise.future, singleRespFuture, timeOut))
+        //        firstThatComes onComplete { case tryVal => println("EIther canceled, either finished") }
+
+      } // Future
+      val sub2 = Subscription(Subscription(ct, sub), breakingSub)
+      sub2
+    } // funcdef
+
+    takeNewReqFutureAndProcess()
+  }
 }
 
 object NodeScala {
@@ -159,7 +186,7 @@ object NodeScala {
      *  1) constructs an uncompleted promise
      *  2) installs an asynchronous `HttpHandler` to the `server`
      *     that deregisters itself
-     *     and then completes the promise with a request when `handle` method is invoked
+     *     and then completes the [promise] with a request when `handle` method is invoked
      *  3) returns the future with the request
      *
      *  @return                the promise holding the pair of a request and an exchange object

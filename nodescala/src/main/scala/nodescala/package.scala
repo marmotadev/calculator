@@ -79,13 +79,12 @@ package object nodescala {
       
       val cts: CancellationTokenSource = CancellationTokenSource()
       
+      
       val futureWait = Future {
         blocking {  
           while (cts.cancellationToken.nonCancelled) {
-        	  Thread.sleep(100)
-            println("Took a nap ..")            
+        	  Thread.sleep(100) //TODO fix in an elegant way
           }
-          println("Aha! Canceled")
         }
       }
       Future.any(List(f(cts.cancellationToken),futureWait))

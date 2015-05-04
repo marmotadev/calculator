@@ -80,16 +80,12 @@ class NodeScalaSuite extends FunSuite with Matchers {
 
     var cf: CancellationToken => Future[Unit] = ct => Future {
       blocking {
-        println("LONG EXECUTION START")
         Thread.sleep(10000)
-        println("LONG EXECUTION END")
       }
     }
 
     var s: Subscription = Future.run()(cf)
-    println("started cancelable")
     var res = s.unsubscribe()
-    println("unsubscribed")
 
   }
 
@@ -126,25 +122,19 @@ class NodeScalaSuite extends FunSuite with Matchers {
 
   test("Future.continueWith should handle exceptions thrown by the user specified continuation function") {
     val first: Future[Int] = Future[Int] {
-      try {
-        println("First start")
         Thread.sleep(100)
         5
-      } finally println("first finished")
     }
     val second: (Future[Int]) => String = (f1: Future[Int]) => {
-      try {
-
         val p = Promise[String]()
 
         f1 onComplete {
           throw new RuntimeException("Test errors")
         }
         Await.result(p.future, Duration.Inf)
-      } finally { println("second finished") }
     }
     val resultFuture: Future[String] = first.continueWith(second)
-    println("Before getting final")
+
     Await.ready(resultFuture, Duration.Inf)
 
     val r = Await.result(resultFuture.failed, Duration.Inf)
@@ -251,9 +241,11 @@ class NodeScalaSuite extends FunSuite with Matchers {
     // wait until server is really installed
     Thread.sleep(500)
 
-    def test(req: Request) {
-      val webpage = dummy.emit("/testDir", req)
-      val content = Await.result(webpage.loaded.future, 1 second)
+    def test(req: Request, ctx: String = "/testDir") {
+      val webpage = dummy.emit(ctx, req)
+      val temper = Duration.Inf // 1 second
+//      val temper = 1 second
+      val content = Await.result(webpage.loaded.future, temper)
       val expected = (for (kv <- req.iterator) yield (kv + "\n").toString).mkString
       assert(content == expected, s"'$content' vs. '$expected'")
     }
@@ -262,8 +254,9 @@ class NodeScalaSuite extends FunSuite with Matchers {
     test(immutable.Map("StrangeRequest" -> List("It works!")))
     test(immutable.Map("WorksForThree" -> List("Always works. Trust me.")))
     test(immutable.Map())
-    Thread.sleep(100)
+    println("Unsubscribe!")
     dummySubscription.unsubscribe()
+//    test(immutable.Map("ReqiestAferSubscription" -> List("Should not be handled.")))
   }
 
 }
