@@ -33,11 +33,13 @@ trait NodeScala {
    */
   private def respond(exchange: Exchange, token: CancellationToken, response: Response): Unit = {
     println("Responding started!")
-    response.foreach { x =>
-      if (token.nonCancelled) {
-        exchange.write(x)
-      }
-      else println("Canceled, not writing anymore.")
+    if (token.isCancelled)
+      println("Canceled token, would not proceed")
+    for (x <- response if token.nonCancelled) {
+      //    response.foreach { x =>
+      //      if (token.nonCancelled) {
+      exchange.write(x)
+      //      } else println("Canceled, not writing anymore.")
     }
     exchange.close()
     println("Closed")
@@ -57,20 +59,37 @@ trait NodeScala {
   def start(relativePath: String)(handler: Request => Response): Subscription = {
     val l = createListener(relativePath)
     val sub = l.start()
-    
-    Future {
-      l.nextRequest().continueWith {
-        x => {
-          val ct = CancellationTokenSource()
-          
-          val (req,ex) = Await.result(x, Duration.Zero)
-          println("Got new request: " + req)
-          val resp = handler(req)
-          respond(ex, ct.cancellationToken, resp)
+    val ct = CancellationTokenSource()
+    val sub2 = Subscription(ct, sub)
+
+    def exchangeFuture(prev: Future[(NodeScala.Request, NodeScala.Exchange)]) = {
+//      prev.onSuccess(pf)
+    }
+//    val servingFuture =
+      Future {
+        while (true) {
+
+          //          Future.any(List(
+          l.nextRequest().continueWith {
+            
+            x => 
+//              x.continueWith (Future {
+//              
+//            })
+              blocking {
+                for ((req, ex) <- x) {
+//                	Future.delay(Duration(999, TimeUnit.MILLISECONDS)).continueWith (Future { ex.close() })
+
+                  println("Got new request: " + req)
+                  val resp = handler(req)
+                  respond(ex, ct.cancellationToken, resp)
+                }
+              }
+          }
+          //            , Future.delay(Duration(20, TimeUnit.SECONDS))))
         }
       }
-    }
-    sub
+    sub2
   }
 
 }

@@ -77,10 +77,10 @@ class NodeScalaSuite extends FunSuite with Matchers {
 
   }
   test("After canncellable is canceled, it is not completed") {
- 
+
     var cf: CancellationToken => Future[Unit] = ct => Future {
       blocking {
-    	  println("LONG EXECUTION START")
+        println("LONG EXECUTION START")
         Thread.sleep(10000)
         println("LONG EXECUTION END")
       }
@@ -230,7 +230,39 @@ class NodeScalaSuite extends FunSuite with Matchers {
     test(immutable.Map("StrangeRequest" -> List("Does it work?")))
     test(immutable.Map("StrangeRequest" -> List("It works!")))
     test(immutable.Map("WorksForThree" -> List("Always works. Trust me.")))
+    test(immutable.Map())
+    dummySubscription.unsubscribe()
+  }
 
+  test("Server should cancel a long-running or infinite response") {
+    val dummy = new DummyServer(8191)
+    val dummySubscription = dummy.start("/testDir") {
+      request =>
+        {
+          blocking {
+            println("Simulating long response")
+            Thread.sleep(2000)
+            try for (kv <- request.iterator) yield (kv + "\n").toString
+            finally println("Long resp finished")
+          }
+        }
+    }
+
+    // wait until server is really installed
+    Thread.sleep(500)
+
+    def test(req: Request) {
+      val webpage = dummy.emit("/testDir", req)
+      val content = Await.result(webpage.loaded.future, 1 second)
+      val expected = (for (kv <- req.iterator) yield (kv + "\n").toString).mkString
+      assert(content == expected, s"'$content' vs. '$expected'")
+    }
+
+    test(immutable.Map("StrangeRequest" -> List("Does it work?")))
+    test(immutable.Map("StrangeRequest" -> List("It works!")))
+    test(immutable.Map("WorksForThree" -> List("Always works. Trust me.")))
+    test(immutable.Map())
+    Thread.sleep(100)
     dummySubscription.unsubscribe()
   }
 
