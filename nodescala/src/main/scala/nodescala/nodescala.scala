@@ -130,15 +130,19 @@ trait NodeScala {
 
               case Failure(f) =>
                 println("Since handler timeouted without response, will generate a fake one" + cur())
+                ex.close()
                 p.tryFailure(f)
                 rct.unsubscribe()
-                respond(ex, rct.cancellationToken, Iterator.empty)
+                handlerPromise.tryFailure(f)
+                println("Done.")
+                
             }
 
           case Failure(t) =>
             println("An error has occured: " + t.getMessage)
             rct.unsubscribe()
-            p.failure(t)
+            p.tryFailure(t)
+            
         }
         val rf = p.future
 
