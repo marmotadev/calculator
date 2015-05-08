@@ -243,11 +243,11 @@ class NodeScalaSuite extends FunSuite with Matchers {
 
     def test(req: Request, ctx: String = "/testDir") {
       val webpage = dummy.emit(ctx, req)
-      val temper = Duration.Inf // 1 second
-//      val temper = 1 second
+//      val temper = Duration.Inf // 1 second
+      val temper = 1 second
       val content = Await.result(webpage.loaded.future, temper)
       val expected = (for (kv <- req.iterator) yield (kv + "\n").toString).mkString
-      assert(content == expected, s"'$content' vs. '$expected'")
+      assert(content == "", s"'$content' vs. '$expected'")
     }
 
     test(immutable.Map("StrangeRequest" -> List("Does it work?")))

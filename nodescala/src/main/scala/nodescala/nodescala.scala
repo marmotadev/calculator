@@ -14,6 +14,7 @@ import scala.util.Try
 import scala.util.Success
 import scala.util.Failure
 
+
 /**
  * Contains utilities common to the NodeScala© framework.
  */
@@ -63,53 +64,86 @@ trait NodeScala {
     val l = createListener(relativePath)
     val sub = l.start()
     val ct = CancellationTokenSource()
+    val rct = CancellationTokenSource()
 
-    val responsePromise = Promise[Unit]()
+    val servingPromise = Promise[Unit]()
+
+    servingPromise.future onComplete {
+      re => println("Request canceled")
+    }
 
     val breakingSub = new Subscription() {
       def unsubscribe() = {
         println("Someone UNSUBSCRIBED")
-        responsePromise.complete(Try({}))
+        servingPromise.complete(Try({}))
       }
     }
     def takeNewReqFutureAndProcess(): Subscription = {
-      Future {
+      val p = Promise[Unit]()
+      val srfut = Future {
         var requestFuture: Future[(NodeScala.Request, NodeScala.Exchange)] = l.nextRequest()
 
-        val singleRespFuture = requestFuture.continueWith {
+        requestFuture onComplete {
 
-          requestAndExchange =>
-            requestAndExchange onComplete {
-              case Success(exec) =>
+          case Success(exec) =>
 
-                val (req, ex) = exec
+            val (req, ex) = exec
+            val handlerPromise = Promise[Response]()
+            val hpf = handlerPromise.future
+            println("New request (will start processing: " + req)
+            val handlerTimeout = Future.delay(Duration(900, TimeUnit.MILLISECONDS))
+            val handlerFuture = Future {
+              val resp = handler(req)
+              handlerPromise.trySuccess(resp)
 
-                println("New request (will start processing: " + req)
-                val resp = handler(req)
+            }
+            handlerTimeout onComplete {
+              _ =>
+                if (handlerFuture.isCompleted == false) {
+                  println("handler timeouted!")
+                  handlerPromise.tryFailure(new TimeoutException("Handler timeouted!"))
+
+                }
+            }
+            hpf onComplete {
+              case Success(resp) =>
                 println(s"Processed: $req")
-                respond(ex, ct.cancellationToken, resp)
-                println(s"Responded with $resp to $req")
-
-              case Failure(t) => println("An error has occured: " + t.getMessage)
+                respond(ex, rct.cancellationToken, resp)
+                //                println(s"Responded with $resp to $req")
+                p.complete(Try({}))
+                if (!rct.cancellationToken.isCancelled)
+                  println("Request finished OK")
+                else
+                  println("Request was canceled")
+                  
+              case Failure(f) =>
+                println("Since handler timeouted without response, will generate a fake one")
+                rct.unsubscribe()
+                respond(ex,  rct.cancellationToken, Iterator.empty)
             }
 
-        } // continueWith
+          case Failure(t) =>
+            println("An error has occured: " + t.getMessage)
+            p.failure(t)
+        }
+        val rf = p.future
 
-        singleRespFuture onComplete {
-          re =>
-            println("Request finished (will spawn new future):" + re)
+        rf onComplete {
+          _ =>
+            println("Request completed, spanning new one?")
             takeNewReqFutureAndProcess()
         }
 
-        responsePromise.future onComplete {
-          re => println("Request canceled")
+        val timeOut = Future.delay(Duration(900, TimeUnit.MILLISECONDS))
+        timeOut onComplete {
+          re =>
+            if (!p.isCompleted) {
+              println("timeout completed, request future not completed!")
+              rct.unsubscribe()
+            }
         }
 
-        val timeOut = Future.delay(Duration(500, TimeUnit.MILLISECONDS))
-        timeOut onComplete {
-          re => println("Request timeouted!")
-        }
-        val firstThatComes = Future.any(List(responsePromise.future, singleRespFuture, timeOut))
+        //        val firstThatComes = Future.any(List(servingPromise.future, p.future, timeOut))
         //        firstThatComes onComplete { case tryVal => println("EIther canceled, either finished") }
 
       } // Future
