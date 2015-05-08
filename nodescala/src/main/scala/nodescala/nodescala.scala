@@ -118,16 +118,15 @@ trait NodeScala {
             hpf onComplete {
               case Success(resp) =>
                 println(s"Processed: $req, responding: " + cur)
-                blocking {
+                if (rct.cancellationToken.isCancelled) {
+                  ex.close()
+                  println("Request was canceled")
+                } else {
 
                   respond(ex, rct.cancellationToken, resp)
-                }
-                //                println(s"Responded with $resp to $req")
-                p.tryComplete(Try({}))
-                if (!rct.cancellationToken.isCancelled)
                   println("Request finished OK")
-                else
-                  println("Request was canceled")
+                }
+                p.tryComplete(Try({}))
 
               case Failure(f) =>
                 println("Since handler timeouted without response, will generate a fake one" + cur())
@@ -159,7 +158,7 @@ trait NodeScala {
           re =>
             if (!p.isCompleted) {
               println("timeout completed, request future not completed!" + cur())
-              p.failure(new RuntimeException("So timeout!"))
+              p.tryFailure(new RuntimeException("So timeout!"))
               rct.unsubscribe()
             }
         }
