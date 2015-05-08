@@ -208,11 +208,11 @@ class NodeScalaSuite extends FunSuite with Matchers {
     }
 
     // wait until server is really installed
-    Thread.sleep(500)
+    Thread.sleep(2500)
 
     def test(req: Request) {
       val webpage = dummy.emit("/testDir", req)
-      val content = Await.result(webpage.loaded.future, 1 second)
+      val content = Await.result(webpage.loaded.future, 5 second)
       val expected = (for (kv <- req.iterator) yield (kv + "\n").toString).mkString
       assert(content == expected, s"'$content' vs. '$expected'")
     }
@@ -231,7 +231,7 @@ class NodeScalaSuite extends FunSuite with Matchers {
         {
           blocking {
             println("Simulating long response")
-            Thread.sleep(2000)
+            Thread.sleep(10000)
             try for (kv <- request.iterator) yield (kv + "\n").toString
             finally println("Long resp finished")
           }
@@ -244,7 +244,7 @@ class NodeScalaSuite extends FunSuite with Matchers {
     def test(req: Request, ctx: String = "/testDir") {
       val webpage = dummy.emit(ctx, req)
 //      val temper = Duration.Inf // 1 second
-      val temper = 1 second
+      val temper = 10 second
       val content = Await.result(webpage.loaded.future, temper)
       val expected = (for (kv <- req.iterator) yield (kv + "\n").toString).mkString
       assert(content == "", s"'$content' vs. '$expected'")

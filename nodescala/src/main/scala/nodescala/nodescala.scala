@@ -13,7 +13,9 @@ import java.net.InetSocketAddress
 import scala.util.Try
 import scala.util.Success
 import scala.util.Failure
-
+import sun.util.calendar.LocalGregorianCalendar.Date
+import java.util.Calendar
+import java.text.SimpleDateFormat
 
 /**
  * Contains utilities common to the NodeScala© framework.
@@ -38,17 +40,17 @@ trait NodeScala {
   private def respond(exchange: Exchange, token: CancellationToken, response: Response): Unit = {
     println("Responding started!")
     if (token.isCancelled)
-      println("Canceled token, would not proceed")
+      println("Canceled token, would not proceed" + cur())
     for (x <- response if token.nonCancelled) {
-      //    response.foreach { x =>
-      //      if (token.nonCancelled) {
       exchange.write(x)
-      //      } else println("Canceled, not writing anymore.")
     }
     exchange.close()
-    println("Closed")
+    println("Closed" + cur())
   }
-
+  val sdf = new SimpleDateFormat("mm:ss.SSS")
+  def cur(): String = {
+    sdf.format(Calendar.getInstance.getTime)
+  }
   /**
    * A server:
    *  1) creates and starts an http listener
@@ -61,24 +63,29 @@ trait NodeScala {
    *  @return               a subscription that can stop the server and all its asynchronous operations *entirely*
    */
   def start(relativePath: String)(handler: Request => Response): Subscription = {
+
     val l = createListener(relativePath)
     val sub = l.start()
-    val ct = CancellationTokenSource()
-    val rct = CancellationTokenSource()
-
     val servingPromise = Promise[Unit]()
-
-    servingPromise.future onComplete {
-      re => println("Request canceled")
-    }
 
     val breakingSub = new Subscription() {
       def unsubscribe() = {
         println("Someone UNSUBSCRIBED")
         servingPromise.complete(Try({}))
+        sub.unsubscribe()
       }
     }
+
+    servingPromise.future onComplete {
+      re => println("Request canceled")
+    }
+
     def takeNewReqFutureAndProcess(): Subscription = {
+      var rct: CancellationTokenSource = CancellationTokenSource()
+      println("Start" + cur())
+
+      val handlerTimeout = Future.delay(Duration(800, TimeUnit.MILLISECONDS))
+
       val p = Promise[Unit]()
       val srfut = Future {
         var requestFuture: Future[(NodeScala.Request, NodeScala.Exchange)] = l.nextRequest()
@@ -91,10 +98,13 @@ trait NodeScala {
             val handlerPromise = Promise[Response]()
             val hpf = handlerPromise.future
             println("New request (will start processing: " + req)
-            val handlerTimeout = Future.delay(Duration(900, TimeUnit.MILLISECONDS))
+            //            val handlerTimeout = Future.delay(Duration(800, TimeUnit.MILLISECONDS))
             val handlerFuture = Future {
-              val resp = handler(req)
-              handlerPromise.trySuccess(resp)
+              blocking {
+
+                val resp = handler(req)
+                handlerPromise.success(resp)
+              }
 
             }
             handlerTimeout onComplete {
@@ -107,38 +117,49 @@ trait NodeScala {
             }
             hpf onComplete {
               case Success(resp) =>
-                println(s"Processed: $req")
-                respond(ex, rct.cancellationToken, resp)
+                println(s"Processed: $req, responding: " + cur)
+                blocking {
+
+                  respond(ex, rct.cancellationToken, resp)
+                }
                 //                println(s"Responded with $resp to $req")
-                p.complete(Try({}))
+                p.tryComplete(Try({}))
                 if (!rct.cancellationToken.isCancelled)
                   println("Request finished OK")
                 else
                   println("Request was canceled")
-                  
+
               case Failure(f) =>
-                println("Since handler timeouted without response, will generate a fake one")
+                println("Since handler timeouted without response, will generate a fake one" + cur())
+                p.tryFailure(f)
                 rct.unsubscribe()
-                respond(ex,  rct.cancellationToken, Iterator.empty)
+                respond(ex, rct.cancellationToken, Iterator.empty)
             }
 
           case Failure(t) =>
             println("An error has occured: " + t.getMessage)
+            rct.unsubscribe()
             p.failure(t)
         }
         val rf = p.future
 
         rf onComplete {
           _ =>
-            println("Request completed, spanning new one?")
-            takeNewReqFutureAndProcess()
+            println("Request completed")
+
+            if (servingPromise.isCompleted) {
+              println("request completed, spanning new one")
+              takeNewReqFutureAndProcess()
+            }
         }
 
-        val timeOut = Future.delay(Duration(900, TimeUnit.MILLISECONDS))
-        timeOut onComplete {
+        println("Before timeout initialize " + cur())
+
+        handlerTimeout onComplete {
           re =>
             if (!p.isCompleted) {
-              println("timeout completed, request future not completed!")
+              println("timeout completed, request future not completed!" + cur())
+              p.failure(new RuntimeException("So timeout!"))
               rct.unsubscribe()
             }
         }
@@ -147,7 +168,7 @@ trait NodeScala {
         //        firstThatComes onComplete { case tryVal => println("EIther canceled, either finished") }
 
       } // Future
-      val sub2 = Subscription(Subscription(ct, sub), breakingSub)
+      val sub2 = Subscription(sub, breakingSub)
       sub2
     } // funcdef
 
