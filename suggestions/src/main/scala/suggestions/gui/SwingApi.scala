@@ -55,12 +55,12 @@ trait SwingApi {
      * @return an observable with a stream of text field updates
      */
     def textValues: Observable[String] = Observable {
-      s =>
-        field subscribe {
-          case ValueChanged(c) =>
-            s.onNext(c.text)
-        }
-    }
+        s =>      
+          field subscribe {
+            case ValueChanged(c) =>
+              s.onNext(c.text)
+          }
+      }
   }
 
   implicit class ButtonOps(button: Button) {
@@ -72,10 +72,17 @@ trait SwingApi {
      * @return an observable with a stream of buttons that have been clicked
      */
     def clicks: Observable[Button] = Observable.create {
-      observer =>
-        {
-          observer.onNext(button)
+      observer => 
+        val sub = Subscription {
+          
+         
+       }
+        button.subscribe {
+          case ButtonClicked(b) =>
+            if (!sub.isUnsubscribed) 
+              observer.onNext(button)
         }
+       sub
     }
   }
 

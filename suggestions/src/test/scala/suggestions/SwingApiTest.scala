@@ -100,11 +100,11 @@ class SwingApiTest extends FunSuite {
     a.click() // shouldn't count
     b.click()
     b.click()
+    sub.unsubscribe()
+    b.click()
 
-    val counts = clicks.count { x => x == b }
-    counts subscribe {
-      a =>
-        assert(a == 2, s"Counts: $counts")
-    }
+    val count = observed.count { x => x == b }
+    assert(count == 2, s"Count: $count")
+    
   }
 }
