@@ -51,6 +51,113 @@ trait NodeScala {
   def cur(): String = {
     sdf.format(Calendar.getInstance.getTime)
   }
+
+  def takeNewReqFutureAndProcess(requestFuture: Future[(NodeScala.Request, NodeScala.Exchange)] ): Subscription = {
+    var rct: CancellationTokenSource = CancellationTokenSource()
+    println("Start" + cur())
+
+    val handlerTimeout = Future.delay(Duration(800, TimeUnit.MILLISECONDS))
+
+    val p = Promise[Unit]()
+    val srfut = Future {
+
+      println("next req")
+//      var requestFuture: Future[(NodeScala.Request, NodeScala.Exchange)] = l.nextRequest()
+
+      requestFuture onComplete {
+
+        case Success(exec) =>
+
+          val (req, ex) = exec
+          val handlerPromise = Promise[Response]()
+          val hpf = handlerPromise.future
+          println("New request (will start processing: " + req)
+          //            val handlerTimeout = Future.delay(Duration(800, TimeUnit.MILLISECONDS))
+          val handlerFuture = Future {
+            blocking {
+              println("Handler before execute")
+              val resp = rh(req)
+              handlerPromise.success(resp)
+            }
+
+          }
+          handlerTimeout onComplete {
+            _ =>
+              if (handlerFuture.isCompleted == false) {
+                println("handler timeouted!")
+                handlerPromise.tryFailure(new TimeoutException("Handler timeouted!"))
+
+              }
+          }
+          hpf onComplete {
+            case Success(resp) => Future {
+              println(s"Processed: $req, responding: " + cur)
+              if (rct.cancellationToken.isCancelled) {
+                ex.close()
+                println("Request was canceled")
+              } else {
+
+                respond(ex, rct.cancellationToken, resp)
+                println("Request finished OK")
+              }
+              p.tryComplete(Try({}))
+            }
+            case Failure(f) => Future {
+
+              println("Since handler timeouted without response, will generate a fake one" + cur())
+              ex.close()
+              p.tryFailure(f)
+              rct.unsubscribe()
+              handlerPromise.tryFailure(f)
+              println("Done.")
+            }
+          }
+
+        case Failure(t) =>
+          println("An error has occured: " + t.getMessage)
+          rct.unsubscribe()
+          p.tryFailure(t)
+
+      }
+      val rf = p.future
+
+      rf onComplete {
+        _ =>
+          println("Request completed")
+
+        //            if (servingPromise.isCompleted) {
+        //              println("request completed, spanning new one")
+        //              takeNewReqFutureAndProcess()
+        //            }
+      }
+
+      println("Before timeout initialize " + cur())
+
+      handlerTimeout onComplete {
+        re =>
+          if (!p.isCompleted) {
+            println("timeout completed, request future not completed!" + cur())
+            p.tryFailure(new RuntimeException("So timeout!"))
+            rct.unsubscribe()
+          }
+      }
+
+      //        val firstThatComes = Future.any(List(servingPromise.future, p.future, timeOut))
+      //        firstThatComes onComplete { case tryVal => println("EIther canceled, either finished") }
+
+    } // Future
+//    val sub2 = Subscription(sub, breakingSub)
+    sub
+  } // funcdef
+
+  def processExchange(e: Exchange) = {
+    val v =  List(e.request, e)
+      takeNewReqFutureAndProcess(Future.always(v))
+   
+  }
+
+  var sub: Subscription = null
+
   /**
    * A server:
    *  1) creates and starts an http listener
@@ -62,10 +169,13 @@ trait NodeScala {
    *  @param handler        a function mapping a request to a response
    *  @return               a subscription that can stop the server and all its asynchronous operations *entirely*
    */
-  def start(relativePath: String)(handler: Request => Response): Subscription = {
+  var rh: Request => Response = null
+  var l: Listener = null;
 
-    val l = createListener(relativePath)
-    val sub = l.start()
+  def start(relativePath: String)(handler: Request => Response): Subscription = {
+    rh = handler
+    l = createListener(relativePath)
+    sub = l.start()
     val servingPromise = Promise[Unit]()
 
     val breakingSub = new Subscription() {
@@ -80,102 +190,8 @@ trait NodeScala {
       re => println("Request canceled")
     }
 
-    def takeNewReqFutureAndProcess(): Subscription = {
-      var rct: CancellationTokenSource = CancellationTokenSource()
-      println("Start" + cur())
-
-      val handlerTimeout = Future.delay(Duration(800, TimeUnit.MILLISECONDS))
-
-      val p = Promise[Unit]()
-      val srfut = Future {
-        var requestFuture: Future[(NodeScala.Request, NodeScala.Exchange)] = l.nextRequest()
-
-        requestFuture onComplete {
-
-          case Success(exec) =>
-
-            val (req, ex) = exec
-            val handlerPromise = Promise[Response]()
-            val hpf = handlerPromise.future
-            println("New request (will start processing: " + req)
-            //            val handlerTimeout = Future.delay(Duration(800, TimeUnit.MILLISECONDS))
-            val handlerFuture = Future {
-              blocking {
-
-                val resp = handler(req)
-                handlerPromise.success(resp)
-              }
-
-            }
-            handlerTimeout onComplete {
-              _ =>
-                if (handlerFuture.isCompleted == false) {
-                  println("handler timeouted!")
-                  handlerPromise.tryFailure(new TimeoutException("Handler timeouted!"))
-
-                }
-            }
-            hpf onComplete {
-              case Success(resp) =>
-                println(s"Processed: $req, responding: " + cur)
-                if (rct.cancellationToken.isCancelled) {
-                  ex.close()
-                  println("Request was canceled")
-                } else {
-
-                  respond(ex, rct.cancellationToken, resp)
-                  println("Request finished OK")
-                }
-                p.tryComplete(Try({}))
-
-              case Failure(f) =>
-                println("Since handler timeouted without response, will generate a fake one" + cur())
-                ex.close()
-                p.tryFailure(f)
-                rct.unsubscribe()
-                handlerPromise.tryFailure(f)
-                println("Done.")
-                
-            }
-
-          case Failure(t) =>
-            println("An error has occured: " + t.getMessage)
-            rct.unsubscribe()
-            p.tryFailure(t)
-            
-        }
-        val rf = p.future
-
-        rf onComplete {
-          _ =>
-            println("Request completed")
-
-            if (servingPromise.isCompleted) {
-              println("request completed, spanning new one")
-              takeNewReqFutureAndProcess()
-            }
-        }
-
-        println("Before timeout initialize " + cur())
-
-        handlerTimeout onComplete {
-          re =>
-            if (!p.isCompleted) {
-              println("timeout completed, request future not completed!" + cur())
-              p.tryFailure(new RuntimeException("So timeout!"))
-              rct.unsubscribe()
-            }
-        }
-
-        //        val firstThatComes = Future.any(List(servingPromise.future, p.future, timeOut))
-        //        firstThatComes onComplete { case tryVal => println("EIther canceled, either finished") }
-
-      } // Future
-      val sub2 = Subscription(sub, breakingSub)
-      sub2
-    } // funcdef
-
-    takeNewReqFutureAndProcess()
+    //    takeNewReqFutureAndProcess()
+    breakingSub
   }
 }
 
@@ -251,7 +267,7 @@ object NodeScala {
      */
     def nextRequest(): Future[(Request, Exchange)] = {
       val p = Promise[(Request, Exchange)]()
-
+      println("NEXT RE")
       createContext(xchg => {
         val req = xchg.request
         removeContext()

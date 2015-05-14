@@ -11,6 +11,8 @@ import org.scalatest._
 import NodeScala._
 import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
+import java.text.SimpleDateFormat
+import java.util.Calendar
 
 @RunWith(classOf[JUnitRunner])
 class NodeScalaSuite extends FunSuite with Matchers {
@@ -142,6 +144,11 @@ class NodeScalaSuite extends FunSuite with Matchers {
     assert(r.isInstanceOf[RuntimeException])
     r.getMessage should be("Test errors")
   }
+  val sdf = new SimpleDateFormat("mm:ss.SSS")
+  def cur(): String = {
+    sdf.format(Calendar.getInstance.getTime)
+  }
+  
   class DummyExchange(val request: Request) extends Exchange {
     @volatile var response = ""
     val loaded = Promise[String]()
@@ -149,7 +156,9 @@ class NodeScalaSuite extends FunSuite with Matchers {
       response += s
     }
     def close() {
+      println("About to close dummy exchange")
       loaded.success(response)
+      println("dummy exchange closed " + cur() + " " +  loaded.future.value)
     }
   }
 
@@ -179,10 +188,18 @@ class NodeScalaSuite extends FunSuite with Matchers {
     }
 
     def emit(req: Request) = {
+      val nrf = nextRequest()
+      nrf onComplete {
+        case Success(r) => 
+          println("Next request")
+      }
       val exchange = new DummyExchange(req)
       if (handler != null) handler(exchange)
+      else println(" Empty emision, handler not initialized")
       exchange
     }
+
+    
   }
 
   class DummyServer(val port: Int) extends NodeScala {
@@ -197,8 +214,13 @@ class NodeScalaSuite extends FunSuite with Matchers {
 
     def emit(relativePath: String, req: Request) = this.synchronized {
       val l = listeners(relativePath)
-      l.emit(req)
+     
+      val e = l.emit(req)
+      processExchange(e)
+      e
     }
+
+    
   }
 
   test("Server should serve requests") {
@@ -208,7 +230,7 @@ class NodeScalaSuite extends FunSuite with Matchers {
     }
 
     // wait until server is really installed
-    Thread.sleep(2500)
+//    Thread.sleep(1500)
 
     def test(req: Request) {
       val webpage = dummy.emit("/testDir", req)
@@ -229,17 +251,17 @@ class NodeScalaSuite extends FunSuite with Matchers {
     val dummySubscription = dummy.start("/testDir") {
       request =>
         {
-          blocking {
-            println("Simulating long response")
+         // blocking {
+            println("Simulating long response " + cur())
             Thread.sleep(10000)
             try for (kv <- request.iterator) yield (kv + "\n").toString
-            finally println("Long resp finished")
-          }
+            finally println("Long resp finished " + cur())
+          //}
         }
     }
 
     // wait until server is really installed
-    Thread.sleep(500)
+    Thread.sleep(1500)
 
     def test(req: Request, ctx: String = "/testDir") {
       val webpage = dummy.emit(ctx, req)
@@ -258,9 +280,4 @@ class NodeScalaSuite extends FunSuite with Matchers {
     dummySubscription.unsubscribe()
 //    test(immutable.Map("ReqiestAferSubscription" -> List("Should not be handled.")))
   }
-
 }
-
-
-
-
