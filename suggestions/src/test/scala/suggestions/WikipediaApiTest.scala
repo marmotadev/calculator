@@ -1,19 +1,16 @@
 package suggestions
 
-
-
 import language.postfixOps
 import scala.concurrent._
 import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.util.{Try, Success, Failure}
+import scala.util.{ Try, Success, Failure }
 import rx.lang.scala._
 import org.scalatest._
 import gui._
 
 import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
-
 
 @RunWith(classOf[JUnitRunner])
 class WikipediaApiTest extends FunSuite {
@@ -46,13 +43,12 @@ class WikipediaApiTest extends FunSuite {
         count += 1
       },
       t => assert(false, s"stream error $t"),
-      () => completed = true
-    )
+      () => completed = true)
     assert(completed && count == 3, "completed: " + completed + ", event count: " + count)
   }
   test("WikipediaApi should correctly use concatRecovered") {
     val requests = Observable.just(1, 2, 3)
-    val remoteComputation = (n: Int) => Observable.just(0 to n : _*)
+    val remoteComputation = (n: Int) => Observable.just(0 to n: _*)
     val responses = requests concatRecovered remoteComputation
     val sum = responses.foldLeft(0) { (acc, tn) =>
       tn match {
@@ -65,6 +61,19 @@ class WikipediaApiTest extends FunSuite {
       s => total = s
     }
     assert(total == (1 + 1 + 2 + 1 + 2 + 3), s"Sum: $total")
+  }
+
+  test("WikipediaApi recovered") {
+    val requests = Observable.just(1, 2, 3, new RuntimeException())
+    //    val remoteComputation = (n: Int) => Observable.just(0 to n : _*)
+    val responses = requests.recovered
+    responses.foldLeft(0) {
+      (a,b) =>
+        a match {
+          case 0 => assert ( b.isSuccess && b.get == Success(1) )
+        }
+    }
+    assert(false, "Not implemented")
   }
 
 }
