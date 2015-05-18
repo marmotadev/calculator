@@ -8,9 +8,10 @@ import scala.util.{ Try, Success, Failure }
 import rx.lang.scala._
 import org.scalatest._
 import gui._
-
 import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
+import java.util.concurrent.TimeUnit
+
 
 @RunWith(classOf[JUnitRunner])
 class WikipediaApiTest extends FunSuite {
@@ -67,13 +68,28 @@ class WikipediaApiTest extends FunSuite {
     val requests = Observable.just(1, 2, 3, new RuntimeException())
     //    val remoteComputation = (n: Int) => Observable.just(0 to n : _*)
     val responses = requests.recovered
-    responses.foldLeft(0) {
-      (a,b) =>
-        a match {
-          case 0 => assert ( b.isSuccess && b.get == Success(1) )
-        }
+    var cnt: Integer = 0
+    responses.doOnEach { x =>
+      val b = x.get
+      b match {
+        case Success(1) => cnt += 1
+        case Success(2) => cnt += 1
+        case Success(3) => cnt += 1
+        case Failure(e) => assert (e.isInstanceOf[RuntimeException])
+        case _ => assert (false, "blogai")
+      }
+      assert (cnt == 3)
     }
-    assert(false, "Not implemented")
   }
 
+  
+  test("WikipediaApi timeout") {
+    val requests = Observable.just(1, 2, 3)
+    //    val remoteComputation = (n: Int) => Observable.just(0 to n : _*)
+    val responses = requests.timeout(Duration(500, TimeUnit.MILLISECONDS))
+    responses.delay(Duration.create("1700ms"))
+    val cnt = responses.count { x => true }
+//    cnt.ne
+    assert(cnt == 3, "Finished.")
+  }
 }
