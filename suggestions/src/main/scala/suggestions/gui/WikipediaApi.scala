@@ -12,6 +12,9 @@ import rx.subscriptions.CompositeSubscription
 import rx.lang.scala.Observable
 import observablex._
 import search._
+import rx.lang.scala.Observer
+import rx.lang.scala.Notification.OnNext
+import java.util.concurrent.TimeUnit
 
 trait WikipediaApi {
 
@@ -74,7 +77,10 @@ trait WikipediaApi {
      *
      * Note: uses the existing combinators on observables.
      */
-    def timedOut(totalSec: Long): Observable[T] = ???
+    def timedOut(totalSec: Long): Observable[T] = {
+      obs.timeout(Duration(totalSec, TimeUnit.SECONDS))
+
+    }
 
     /**
      * Given a stream of events `obs` and a method `requestMethod` to map a request `T` into
@@ -102,7 +108,11 @@ trait WikipediaApi {
      *
      * Observable(Success(1), Succeess(1), Succeess(1), Succeess(2), Succeess(2), Succeess(2), Succeess(3), Succeess(3), Succeess(3))
      */
-    def concatRecovered[S](requestMethod: T => Observable[S]): Observable[Try[S]] = ???
+    def concatRecovered[S](requestMethod: T => Observable[S]): Observable[Try[S]] = {
+      obs.flatMap[Try[S]] { dd: T =>
+        requestMethod(dd).recovered
+      }
+    }
 
   }
 

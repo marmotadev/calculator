@@ -12,7 +12,6 @@ import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
 import java.util.concurrent.TimeUnit
 
-
 @RunWith(classOf[JUnitRunner])
 class WikipediaApiTest extends FunSuite {
 
@@ -75,21 +74,22 @@ class WikipediaApiTest extends FunSuite {
         case Success(1) => cnt += 1
         case Success(2) => cnt += 1
         case Success(3) => cnt += 1
-        case Failure(e) => assert (e.isInstanceOf[RuntimeException])
-        case _ => assert (false, "blogai")
+        case Failure(e) => assert(e.isInstanceOf[RuntimeException])
+        case _          => assert(false, "blogai")
       }
-      assert (cnt == 3)
+      assert(cnt == 3)
     }
   }
 
-  
-  test("WikipediaApi timeout") {
-    val requests = Observable.just(1, 2, 3)
-    //    val remoteComputation = (n: Int) => Observable.just(0 to n : _*)
+   test("WikipediaApi timeout should return the first value, and complete without errors") {
+    val requests = Observable.just(1, 2, 3).zip(Observable.interval(700 millis)).timedOut(1L)
+
     val responses = requests.timeout(Duration(500, TimeUnit.MILLISECONDS))
-    responses.delay(Duration.create("1700ms"))
-    val cnt = responses.count { x => true }
-//    cnt.ne
-    assert(cnt == 3, "Finished.")
+    
+    var cnt = responses.foldLeft(0) { (num, bum) => num + bum._1
+      
+    }
+    cnt.subscribe { x => assert (x == 1)}
+    
   }
 }
