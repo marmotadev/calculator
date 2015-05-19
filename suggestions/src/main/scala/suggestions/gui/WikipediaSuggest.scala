@@ -40,7 +40,13 @@ object WikipediaSuggest extends SimpleSwingApplication with ConcreteSwingApi wit
       icon = new javax.swing.ImageIcon(javax.imageio.ImageIO.read(this.getClass.getResourceAsStream("/suggestions/wiki-icon.png")))
     }
     val searchTermField = new TextField
-    val suggestionList = new ListView(ListBuffer[String]())
+    val suggestionList = new ListView(ListBuffer[String]()) 
+//    {
+//      listenTo(mouse.clicks)
+//      listeners += {
+//        case SelectionChanged(s) => println(" Changed sel")
+//      }
+//    }
     val status = new Label(" ")
     val editorpane = new EditorPane {
       import javax.swing.border._
@@ -97,11 +103,15 @@ object WikipediaSuggest extends SimpleSwingApplication with ConcreteSwingApi wit
     }
 
     // TO IMPLEMENT
-    val selections: Observable[String] = Observable.from(suggestionList.listData)
+    val selections: Observable[String] = button.clicks.filter { 
+      _=> suggestionList.selection.items.nonEmpty } .map {_ => suggestionList.selection.items.head}
+    
+    
     
 
     // TO IMPLEMENT
-    val pages: Observable[Try[String]] = selections.concatRecovered { x => Observable.from(wikipediaPage(x)) }
+    val pages: Observable[Try[String]] = selections.concatRecovered { x => println(s"q for $x")
+      Observable.from(wikipediaPage(x)) }
 
     // TO IMPLEMENT
     val pageSubscription: Subscription = pages.observeOn(eventScheduler) subscribe {
