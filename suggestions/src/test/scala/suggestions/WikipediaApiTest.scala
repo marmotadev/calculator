@@ -46,50 +46,69 @@ class WikipediaApiTest extends FunSuite {
       () => completed = true)
     assert(completed && count == 3, "completed: " + completed + ", event count: " + count)
   }
-  test("WikipediaApi should correctly use concatRecovered") {
-    val requests = Observable.just(1, 2, 3)
-    val remoteComputation = (n: Int) => Observable.just(0 to n: _*)
-    val responses = requests concatRecovered remoteComputation
-    val sum = responses.foldLeft(0) { (acc, tn) =>
-      tn match {
-        case Success(n) => acc + n
-        case Failure(t) => throw t
+  
+  def m(x: Try[Int], num: Int) = {
+      x match {
+        case Success(num) => 
+        case _ => assert(false, s"values is not equal to List(Success($num))")
       }
     }
-    var total = -1
-    val sub = sum.subscribe {
-      s => total = s
+  
+  
+  test("WikipediaApi should correctly use concatRecovered") {
+
+    val requests = Observable.just(1, 2, 3, 4, 5)
+
+    val remoteComputation = (num: Int) => if (num != 4) Observable.just(num) else Observable.error(new Exception)
+    val responses = requests concatRecovered remoteComputation
+    
+    val rl = responses.toBlocking.toList
+    val (aa :: bb :: cc :: dd :: ee :: Nil) = rl
+    m(aa, 1)
+    m(bb, 2)
+    m(cc, 3)
+    
+    m(ee, 5)
+    dd match {
+      case Failure(ff) => assert(ff.isInstanceOf[Exception])
+      case _ => fail("should not be this")
     }
-    assert(total == (1 + 1 + 2 + 1 + 2 + 3), s"Sum: $total")
+    
   }
 
   test("WikipediaApi recovered") {
-    val requests = Observable.just(1, 2, 3, new RuntimeException())
-    //    val remoteComputation = (n: Int) => Observable.just(0 to n : _*)
+    val c = (num: Int) => if (num != 4) Observable.just(num) else Observable.error(new RuntimeException)
+    val requests = Observable.just(1, 2, 3, 4).map { x => c(x) }.flatten
+    var oo: Observer[Int] = null
+
+
     val responses = requests.recovered
-    var cnt: Integer = 0
-    responses.doOnEach { x =>
-      val b = x.get
-      b match {
-        case Success(1) => cnt += 1
-        case Success(2) => cnt += 1
-        case Success(3) => cnt += 1
-        case Failure(e) => assert(e.isInstanceOf[RuntimeException])
-        case _          => assert(false, "blogai")
-      }
-      assert(cnt == 3)
+    println("before block")
+    val rr = responses.toBlocking.toList
+    println("rrr " + rr)
+    val (aa :: bb :: cc :: dd :: Nil) = rr
+    dd match { 
+      case Failure(fl) => assert (fl.isInstanceOf[RuntimeException])
+      case _ => assert(false, "Failed, success instead of success")
     }
+    
+    m(aa, 1)
+    m(bb, 2)
+    m(cc, 4)
+ 
   }
 
-   test("WikipediaApi timeout should return the first value, and complete without errors") {
-    val requests = Observable.just(1, 2, 3).zip(Observable.interval(700 millis)).timedOut(1L)
+  test("WikipediaApi timeout should return the first value, and complete without errors") {
+    val requests = Observable.just(10, 20, 30, 40, 50).zip(Observable.interval(700 millis))
 
-    val responses = requests.timeout(Duration(500, TimeUnit.MILLISECONDS))
-    
-    var cnt = responses.foldLeft(0) { (num, bum) => num + bum._1
-      
+    val responses = requests.timedOut(1L)
+
+    var sum: Integer = 0
+    responses.subscribe {
+      x => sum = sum + x._1
     }
-    cnt.subscribe { x => assert (x == 1)}
-    
+
+    Thread.sleep(2000)
+    assert(sum == 10)
   }
 }

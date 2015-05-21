@@ -15,6 +15,7 @@ import search._
 import rx.lang.scala.Observer
 import rx.lang.scala.Notification.OnNext
 import java.util.concurrent.TimeUnit
+import rx.lang.scala.Subscriber
 
 trait WikipediaApi {
 
@@ -60,14 +61,12 @@ trait WikipediaApi {
      * E.g. `1, 2, 3, !Exception!` should become `Success(1), Success(2), Success(3), Failure(Exception), !TerminateStream!`
      */
     def recovered: Observable[Try[T]] = {
-
-      obs.onErrorReturn {
-        x => Failure(x)
+      println("Recovered goes wild")
+      obs.map { x => Try(x)} onErrorReturn {
+        x => 
+          println("recovered mapping failure")
+          Failure(x)
       }
-      obs.map {
-        x => Success(x)
-      }
-
     }
 
     /**
@@ -78,8 +77,17 @@ trait WikipediaApi {
      * Note: uses the existing combinators on observables.
      */
     def timedOut(totalSec: Long): Observable[T] = {
-      obs.timeout(Duration(totalSec, TimeUnit.SECONDS))
+      var timeouted = false
+      val f = Future {
+        blocking {
+          Thread.sleep(totalSec * 1000)
+        }
+      }
+      f onComplete {
+        _ => timeouted = true
+      }
 
+      obs.filter { x => !timeouted }
     }
 
     /**
@@ -109,8 +117,15 @@ trait WikipediaApi {
      * Observable(Success(1), Succeess(1), Succeess(1), Succeess(2), Succeess(2), Succeess(2), Succeess(3), Succeess(3), Succeess(3))
      */
     def concatRecovered[S](requestMethod: T => Observable[S]): Observable[Try[S]] = {
+      
+      obs.onErrorReturn { x => Failure(x) }
+//      obs.on
       obs.flatMap[Try[S]] { dd: T =>
-        requestMethod(dd).recovered
+        println("before req " + dd)
+        val o = requestMethod(dd)
+        println("after req")
+        o.onErrorReturn { x => Failure(x) }
+        o.recovered
       }
     }
 
