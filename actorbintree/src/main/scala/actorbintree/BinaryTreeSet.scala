@@ -70,12 +70,13 @@ class BinaryTreeSet extends Actor {
   // optional
   /** Accepts `Operation` and `GC` messages. */
   val normal: Receive = {
+
     case Contains(ca, cid, celem) => 
       println(s"Tree  ($self) got request from ($sender), root: $root")
       root ! Contains(ca, cid, celem)
     case ContainsResult(id, res) => 
-      println(s"[$id] set got informed with res $res")
-      sender ! ContainsResult(id, res)
+      println(s"[$id] set($self) got informed with res $res,will tell context.parent")
+      context.parent ! ContainsResult(id, res)
     case Insert(ca, cid, celem)   => 
       root ! Insert(ca, cid, celem)
     case GC                       => println("GC requested")
@@ -145,12 +146,14 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
       } else println("Unknown condition <>")
       act ! OperationFinished(id)
     case Contains(act, id, elemc) =>
-      val contains = false
-      println(s"Contains($id), $elemc req from $act")
+      var contains = false
+      println(s"Contains($id), $elemc req to $act from $sender")
 
       //      if (!removed) {
       if (elemc == elem) {
         println(s"Contains: Element itself has $elemc")
+        println(s"send contains result to $sender")
+        contains = true
         sender ! ContainsResult(id, contains)
       } else {
 
@@ -160,14 +163,14 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
           l match {
             case Some(a) =>
               println("Contains left")
-              a ! Contains(act, id, elemc)
+              a ! Contains(self, id, elemc)
             case _ =>
           }
           l = subtrees get Right
           l match {
             case Some(a) =>
               println("Contains right")
-              a ! Contains(act, id, elemc)
+              a ! Contains(self, id, elemc)
             case _ =>
           }
 
@@ -183,6 +186,7 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
     //      }
     case ContainsResult(id: Int, res: Boolean) =>
       println(s"ContainsResult($id): actor $self got result: $res")
+      context.parent ! ContainsResult(id, res)
     case _ => ???
   }
 
