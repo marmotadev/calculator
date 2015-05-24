@@ -30,6 +30,7 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
       }
       val replies = repliesUnsorted.sortBy(_.id)
       if (replies != expectedReplies) {
+        println(s"REPLIES: $replies")
         val pairs = (replies zip expectedReplies).zipWithIndex filter (x => x._1._1 != x._1._2)
         fail("unexpected replies:" + pairs.map(x => s"at index ${x._2}: got ${x._1._1}, expected ${x._1._2}").mkString("\n    ", "\n    ", ""))
       }
@@ -39,6 +40,7 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
     val topNode = system.actorOf(Props[BinaryTreeSet])
 
     ops foreach { op =>
+      println(s"Sending op $op")
       topNode ! op
     }
 
@@ -48,6 +50,7 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
 
   test("proper inserts and lookups") {
     val topNode = system.actorOf(Props[BinaryTreeSet])
+    println(s"Top node: $topNode, $testActor")
 
     topNode ! Contains(testActor, id = 1, 1)
     expectMsg(ContainsResult(1, false))

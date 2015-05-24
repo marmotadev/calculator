@@ -69,18 +69,49 @@ class BinaryTreeSet extends Actor {
 
   // optional
   /** Accepts `Operation` and `GC` messages. */
+
+  private def waitingForContains(origin: ActorRef): Receive = {
+    case ContainsResult(id, res) =>
+      println(s"ContainsResult (in main loop) result ($id), $res, will forward to $origin")
+      origin ! ContainsResult(id, res)
+      context become receive
+    //      context become waitingForCheckHealth
+  }
+  private def waitingForInsert(origin: ActorRef): Receive = {
+    case OperationFinished(id) =>
+      println(s"OperationFinished(ins): ($id), will forward to $origin")
+      origin ! OperationFinished(id)
+      context.unbecome 
+    case Insert(a,b,c) => println(s"Unexpected!! $a $b $c")
+
+  }
+  private def waitingForRemove(origin: ActorRef): Receive = {
+    case OperationFinished(id) =>
+      println(s"OperationFinished(remove): ($id), will forward to $origin")
+      origin ! OperationFinished(id)
+      context become receive
+
+    case _ => ???
+  }
+  
+
   val normal: Receive = {
 
-    case Contains(ca, cid, celem) => 
+    case Contains(ca, cid, celem) =>
       println(s"Tree  ($self) got request from ($sender), root: $root")
       root ! Contains(ca, cid, celem)
-    case ContainsResult(id, res) => 
-      println(s"[$id] set($self) got informed with res $res,will tell context.parent")
-      context.parent ! ContainsResult(id, res)
-    case Insert(ca, cid, celem)   => 
+      context become waitingForContains(ca)
+
+    case Insert(ca, cid, celem) =>
+      println(s"Insert($cid): $celem")
       root ! Insert(ca, cid, celem)
-    case GC                       => println("GC requested")
-    case _                        => ???
+      context become waitingForInsert(ca)
+    case Remove(ca, cid, celem) =>
+      root ! Remove(ca, cid, celem)
+      context become waitingForRemove(ca)
+    case GC => println("GC requested")
+    //    case ContainsResult (id, res) => 
+    case _  => ???
   }
 
   // optional
@@ -115,34 +146,57 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
   // optional
   def receive = normal
 
+  def hasChildren: Boolean = (subtrees contains Left) || (subtrees contains Right)
   // optional
   /** Handles `Operation` messages and `CopyTo` requests. */
   val normal: Receive = {
     case Remove(act, id, elemc) =>
-      println(s"Remove($id) $elemc to $act")
-      act ! OperationFinished(id)
+      println(s"Remove($id) $elemc, node: $self, notify: $act")
+
+      if (elemc == elem) {
+        println("Remove($id): Element matches, removing")
+        removed = true
+        act ! OperationFinished(id)
+      } else if (hasChildren) {
+        if (elemc < elem) {
+          val e = subtrees get Left
+          e match {
+            case Some(ee) =>
+              ee ! Remove(act, id, elemc)
+            case None =>
+              act ! OperationFinished(id)
+          }
+        } else if (elemc > elem) {
+          val e = subtrees get Right
+          e match {
+            case Some(ee) =>
+              ee ! Remove(act, id, elemc)
+            case None =>
+              act ! OperationFinished(id)
+          }
+        }
+      } else {
+        println("No children, will not remove anything")
+        act ! OperationFinished(id)
+      }
+
     case Insert(act, id, elemc) =>
       println(s"Insert($id): got req to insert $elemc to $act")
       println(s"self: $self, target: $act")
       if (removed) {
-        println(s"[$id] Current node deleted")
+        println(s"Insert($id, $elemc): Current node deleted")
       }
-      //      if (self == act) {
-      //        if (removed)
-      //          println("Changing removed flag")
-      //          removed = false
-      //        elem = elemc
-      //      }
+
       if (elemc == elem)
         println("Element which inserted equals to currentactor node")
-      val c = buildChild(elemc)
+
       if (elemc < elem) {
 
-        insertChild(c, Left)
-        removed = false
+        insertChild(act, Left, id, elemc)
+        //        removed = false
       } else if (elemc > elem) {
-        insertChild(c, Right)
-        removed = false
+        insertChild(act, Right, id, elemc)
+        //        removed = false
       } else println("Unknown condition <>")
       act ! OperationFinished(id)
     case Contains(act, id, elemc) =>
@@ -152,30 +206,42 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
       //      if (!removed) {
       if (elemc == elem) {
         println(s"Contains: Element itself has $elemc")
-        println(s"send contains result to $sender")
-        contains = true
-        sender ! ContainsResult(id, contains)
+        contains = !removed
+        println(s"ContainsResult($id), res: $contains, val: $elemc: to $sender")
+        context.parent ! ContainsResult(id, contains)
       } else {
 
-        if ((subtrees contains Left) || (subtrees contains Right)) {
+        if (hasChildren) {
 
-          var l = subtrees get Left
-          l match {
-            case Some(a) =>
-              println("Contains left")
-              a ! Contains(self, id, elemc)
-            case _ =>
+          def sc(l: Option[ActorRef], pos: Position = null) = {
+            l match {
+              case Some(a) =>
+                println(s"Contains $pos: $a")
+                val origin = sender
+                //                val waitForContainsResult: Receive = {
+                //                  case ContainsResult(id1, true) =>
+                //                    println(s"ContainsResult to $origin")
+                //                    origin ! ContainsResult(id1, true)
+                //                    context become receive
+                ////                  case _ => ???
+                //                }
+                println(s"Contains forward to child at $pos")
+                a ! Contains(act, id, elemc)
+              //                coxntext become waitForContainsResult
+
+              case _ => ???
+            }
           }
-          l = subtrees get Right
-          l match {
-            case Some(a) =>
-              println("Contains right")
-              a ! Contains(self, id, elemc)
-            case _ =>
-          }
+
+          if (elemc < elem)
+            sc(subtrees get Left, Left)
+          else
+            sc(subtrees get Right, Right)
 
         } else {
-          println(s"No children, sender: $sender")
+          //node has NO children, means we should responde with 
+          println(s"ContainsResult: No children at node $self, sender: $sender")
+          println(s"ContainsResult: resp=false to $act")
           act ! ContainsResult(id, false)
         }
       }
@@ -186,6 +252,7 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
     //      }
     case ContainsResult(id: Int, res: Boolean) =>
       println(s"ContainsResult($id): actor $self got result: $res")
+      println(s"ContainsResult($id) forward to parent: ${context.parent}")
       context.parent ! ContainsResult(id, res)
     case _ => ???
   }
@@ -204,19 +271,16 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
   def hasLeft: Boolean = hasNode(Left)
 
   def hasNode(pos: Position): Boolean = {
-    val l = subtrees get Right
-    l match {
-      case Some(a) =>
-        return true
-      case _ =>
-        return false
-    }
+    subtrees contains pos
   }
-  def insertChild(c: ActorRef, pos: Position) = {
-    if (hasNode(pos)) {
-      println(s"Node $c already has $pos")
+  def insertChild(r: ActorRef, pos: Position, id: Integer, elem: Integer) = {
+    if (subtrees contains pos) {
+      println(s"insertChild: Node $r already has $pos, forward insert to child")
+      val cur = subtrees get pos
+      cur.get ! Insert(r, id, elem)
     } else {
-      println(s"New node $c at $pos")
+      val c = buildChild(elem)
+      println(s"insertChild: New node $c at $pos in node $self")
       subtrees = subtrees updated (pos, c)
     }
   }
