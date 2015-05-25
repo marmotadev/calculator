@@ -70,48 +70,52 @@ class BinaryTreeSet extends Actor {
   // optional
   /** Accepts `Operation` and `GC` messages. */
 
-  private def waitingForContains(origin: ActorRef): Receive = {
-    case ContainsResult(id, res) =>
-      println(s"ContainsResult (in main loop) result ($id), $res, will forward to $origin")
-      context.parent ! ContainsResult(id, res)
-      context.unbecome
-    //      context become waitingForCheckHealth
-  }
-  private def waitingForInsert(origin: ActorRef): Receive = {
-    case OperationFinished(id) =>
-      println(s"OperationFinished(ins): ($id), will forward to $origin")
-      context.parent ! OperationFinished(id)
-      context.unbecome
-    case Insert(a, b, c) => println(s"Unexpected!! $a $b $c")
-
-  }
-  private def waitingForRemove(origin: ActorRef): Receive = {
-    case OperationFinished(id) =>
-      println(s"OperationFinished(remove): ($id), will forward to $origin")
-      context.parent ! OperationFinished(id)
-      context.unbecome
-
-    case _ => ???
-  }
+  //  private def waitingForContains(origin: ActorRef): Receive = {
+  //    case ContainsResult(id, res) =>
+  //      println(s"ContainsResult (in main loop) result ($id), $res, will forward to $origin")
+  //      context.parent ! ContainsResult(id, res)
+  //      context.unbecome
+  //    //      context become waitingForCheckHealth
+  //  }
+  //  private def waitingForInsert(origin: ActorRef): Receive = {
+  //    case OperationFinished(id) =>
+  //      println(s"OperationFinished(ins): ($id), will forward to $origin")
+  //      context.parent ! OperationFinished(id)
+  //      context.unbecome
+  //    case Insert(a, b, c) => println(s"Unexpected!! $a $b $c")
+  //
+  //  }
+  //  private def waitingForRemove(origin: ActorRef): Receive = {
+  //    case OperationFinished(id) =>
+  //      println(s"OperationFinished(remove): ($id), will forward to $origin")
+  //      context.parent ! OperationFinished(id)
+  //      context.unbecome
+  //
+  //    case _ => ???
+  //  }
 
   val normal: Receive = {
 
     case Contains(ca, cid, celem) =>
       println(s"Contains(Tree)  ($self) got request from ($sender), root: $root")
       root ! Contains(ca, cid, celem)
-//      context become waitingForContains(ca)
+    //      context become waitingForContains(ca)
 
     case Insert(ca, cid, celem) =>
       println(s"Insert(Tree, $cid): $celem")
       root ! Insert(ca, cid, celem)
-//      context become waitingForInsert(ca)
+    //      context become waitingForInsert(ca)
     case Remove(ca, cid, celem) =>
       println(s"Remove(tree) ($cid, $celem)")
       root ! Remove(ca, cid, celem)
-//      context become waitingForRemove(ca)
-    case GC => println("GC requested")
+    //      context become waitingForRemove(ca)
+    case GC =>
+      println("GC requested")
+      val newRoot = createRoot
+      context become garbageCollecting(newRoot)
+      root ! CopyTo(newRoot)
     //    case ContainsResult (id, res) => 
-    case _  => ???
+    case _ => ???
   }
 
   // optional
@@ -120,7 +124,25 @@ class BinaryTreeSet extends Actor {
    * `newRoot` is the root of the new binary tree where we want to copy
    * all non-removed elements into.
    */
-  def garbageCollecting(newRoot: ActorRef): Receive = ???
+  def garbageCollecting(newRoot: ActorRef): Receive = {
+
+    case Contains(ca, cid, celem) =>
+      println(s"GC:Contains(Tree)  ($self) got request from ($sender), root: $root")
+      pendingQueue = pendingQueue enqueue Contains(ca, cid, celem)
+
+    case Insert(ca, cid, celem) =>
+      println(s"GC:Insert(Tree, $cid): $celem")
+      pendingQueue = pendingQueue enqueue Insert(ca, cid, celem)
+    case Remove(ca, cid, celem) =>
+      println(s"GC:Remove(tree) ($cid, $celem)")
+      pendingQueue = pendingQueue enqueue Remove(ca, cid, celem)
+    case GC =>
+      println(s"GC: Ignored")
+    case CopyFinished =>
+      println(s"CopyFinished")
+      context.unbecome
+    case _ => ???
+  }
 
 }
 
@@ -181,7 +203,7 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
       }
 
     case Insert(act, id, elemc) =>
-      println(s"Insert($id): got req to insert $elemc to $act")
+      println(s"Insert($id): got req to insert $elemc to $self, notify: $act")
       println(s"self: $self, target: $act")
       if (removed) {
         println(s"Insert($id, $elemc): Current node deleted")
@@ -222,7 +244,7 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
                 println(s"Contains $pos: $a")
                 println(s"Contains forward to child $a at $pos")
                 a ! Contains(act, id, elemc)
-              case None => 
+              case None =>
                 println(s"Contains($id): The last node $pos readched, NOT FOUND")
                 act ! ContainsResult(id, false)
             }
@@ -245,12 +267,25 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
     //        println(s"telling does not contain ($id)")
     //        act ! ContainsResult(id, false)
     //      }
-//    case ContainsResult(id: Int, res: Boolean) =>
-//      println(s"ContainsResult($id): actor $self got result: $res")
-//      println(s"ContainsResult($id) forward to parent: ${context.parent}")
-//      act ! ContainsResult(id, res)
+    //    case ContainsResult(id: Int, res: Boolean) =>
+    //      println(s"ContainsResult($id): actor $self got result: $res")
+    //      println(s"ContainsResult($id) forward to parent: ${context.parent}")
+    //      act ! ContainsResult(id, res)
+    case CopyTo(newRoot: ActorRef) =>
+      println(s"CopyTo: $self -> $newRoot")
+      newRoot ! Insert(self, 0, elem)
+      if (hasLeft) {
+        (subtrees get Left).get ! CopyTo(newRoot)
+      }
+      if (hasRight)
+        (subtrees get Right).get ! CopyTo(newRoot)
+    case CopyFinished => 
+      println("Copy finished from $self, will notify ${context.parent}")
+      context.parent ! CopyFinished
     case _ => ???
+
   }
+  var childrenPending  = 0
 
   def buildChild(e: Int): ActorRef = context.actorOf(BinaryTreeNode.props(e, initiallyRemoved = false))
 
