@@ -73,14 +73,14 @@ class BinaryTreeSet extends Actor {
   private def waitingForContains(origin: ActorRef): Receive = {
     case ContainsResult(id, res) =>
       println(s"ContainsResult (in main loop) result ($id), $res, will forward to $origin")
-      origin ! ContainsResult(id, res)
-      context become receive
+      context.parent ! ContainsResult(id, res)
+      context.unbecome
     //      context become waitingForCheckHealth
   }
   private def waitingForInsert(origin: ActorRef): Receive = {
     case OperationFinished(id) =>
       println(s"OperationFinished(ins): ($id), will forward to $origin")
-      origin ! OperationFinished(id)
+      context.parent ! OperationFinished(id)
       context.unbecome
     case Insert(a, b, c) => println(s"Unexpected!! $a $b $c")
 
@@ -88,8 +88,8 @@ class BinaryTreeSet extends Actor {
   private def waitingForRemove(origin: ActorRef): Receive = {
     case OperationFinished(id) =>
       println(s"OperationFinished(remove): ($id), will forward to $origin")
-      origin ! OperationFinished(id)
-      context become receive
+      context.parent ! OperationFinished(id)
+      context.unbecome
 
     case _ => ???
   }
@@ -99,16 +99,16 @@ class BinaryTreeSet extends Actor {
     case Contains(ca, cid, celem) =>
       println(s"Contains(Tree)  ($self) got request from ($sender), root: $root")
       root ! Contains(ca, cid, celem)
-      context become waitingForContains(ca)
+//      context become waitingForContains(ca)
 
     case Insert(ca, cid, celem) =>
       println(s"Insert(Tree, $cid): $celem")
       root ! Insert(ca, cid, celem)
-      context become waitingForInsert(ca)
+//      context become waitingForInsert(ca)
     case Remove(ca, cid, celem) =>
       println(s"Remove(tree) ($cid, $celem)")
       root ! Remove(ca, cid, celem)
-      context become waitingForRemove(ca)
+//      context become waitingForRemove(ca)
     case GC => println("GC requested")
     //    case ContainsResult (id, res) => 
     case _  => ???
@@ -191,7 +191,7 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
         println("Insert($id) $elemc, $self Element which inserted equals to current actor node")
         println("Updating to remvoed= false")
         removed = false
-        context.parent ! OperationFinished(id)
+        act ! OperationFinished(id)
       } else {
         if (elemc < elem) {
           insertChild(act, Left, id, elemc)
@@ -211,7 +211,7 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
         println(s"Contains: Element itself has $elemc")
         contains = !removed
         println(s"ContainsResult($id), res: $contains, val: $elemc: to $sender")
-        context.parent ! ContainsResult(id, contains)
+        act ! ContainsResult(id, contains)
       } else {
 
         if (hasChildren) {
@@ -220,19 +220,11 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
             l match {
               case Some(a) =>
                 println(s"Contains $pos: $a")
-                val origin = sender
-                //                val waitForContainsResult: Receive = {
-                //                  case ContainsResult(id1, true) =>
-                //                    println(s"ContainsResult to $origin")
-                //                    origin ! ContainsResult(id1, true)
-                //                    context become receive
-                ////                  case _ => ???
-                //                }
-                println(s"Contains forward to child at $pos")
+                println(s"Contains forward to child $a at $pos")
                 a ! Contains(act, id, elemc)
-              //                coxntext become waitForContainsResult
-
-              case _ => ???
+              case None => 
+                println(s"Contains($id): The last node $pos readched, NOT FOUND")
+                act ! ContainsResult(id, false)
             }
           }
 
@@ -243,8 +235,8 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
 
         } else {
           //node has NO children, means we should responde with 
-          println(s"ContainsResult: No children at node $self, sender: $sender")
-          println(s"ContainsResult: resp=false to $act")
+          println(s"ContainsResult($id): No children at node $self, sender: $sender")
+          println(s"ContainsResult($id): resp=false to $act")
           act ! ContainsResult(id, false)
         }
       }
@@ -253,10 +245,10 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
     //        println(s"telling does not contain ($id)")
     //        act ! ContainsResult(id, false)
     //      }
-    case ContainsResult(id: Int, res: Boolean) =>
-      println(s"ContainsResult($id): actor $self got result: $res")
-      println(s"ContainsResult($id) forward to parent: ${context.parent}")
-      context.parent ! ContainsResult(id, res)
+//    case ContainsResult(id: Int, res: Boolean) =>
+//      println(s"ContainsResult($id): actor $self got result: $res")
+//      println(s"ContainsResult($id) forward to parent: ${context.parent}")
+//      act ! ContainsResult(id, res)
     case _ => ???
   }
 
@@ -285,7 +277,7 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
       val c = buildChild(elem)
       println(s"insertChild: New node $c at $pos in node $self")
       subtrees = subtrees updated (pos, c)
-      context.parent ! OperationFinished(id)
+      r ! OperationFinished(id)
     }
   }
 
