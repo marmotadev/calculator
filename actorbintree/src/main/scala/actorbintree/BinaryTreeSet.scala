@@ -112,10 +112,14 @@ class BinaryTreeSet extends Actor {
     case GC =>
       println("GC requested")
       val newRoot = createRoot
+      println(s"NEW ROOT: $newRoot")
       context become garbageCollecting(newRoot)
       root ! CopyTo(newRoot)
     //    case ContainsResult (id, res) => 
-    case _ => ???
+
+    case Some(cmd) =>
+      println(s"Set recieved unknown command: $cmd")
+      ???
   }
 
   // optional
@@ -138,9 +142,17 @@ class BinaryTreeSet extends Actor {
       pendingQueue = pendingQueue enqueue Remove(ca, cid, celem)
     case GC =>
       println(s"GC: Ignored")
+
     case CopyFinished =>
-      println(s"CopyFinished")
+      println(s"GC finished!!!")
+      println(s"CopyFinished: $sender reports finished, will replay message queue: $pendingQueue")
+      println("SWITCHING ROOTS")
+      root = newRoot
       context.unbecome
+      for (op <- pendingQueue.seq) {
+        newRoot ! op
+      }
+
     case _ => ???
   }
 
@@ -204,11 +216,6 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
 
     case Insert(act, id, elemc) =>
       println(s"Insert($id): got req to insert $elemc to $self, notify: $act")
-      println(s"self: $self, target: $act")
-      if (removed) {
-        println(s"Insert($id, $elemc): Current node deleted")
-      }
-
       if (elemc == elem) {
         println("Insert($id) $elemc, $self Element which inserted equals to current actor node")
         println("Updating to remvoed= false")
@@ -262,30 +269,53 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
           act ! ContainsResult(id, false)
         }
       }
-    //      } else {
-    //        println(s"status: Node $elemc remvoved ($id), sender: $act")
-    //        println(s"telling does not contain ($id)")
-    //        act ! ContainsResult(id, false)
-    //      }
-    //    case ContainsResult(id: Int, res: Boolean) =>
-    //      println(s"ContainsResult($id): actor $self got result: $res")
-    //      println(s"ContainsResult($id) forward to parent: ${context.parent}")
-    //      act ! ContainsResult(id, res)
-    case CopyTo(newRoot: ActorRef) =>
-      println(s"CopyTo: $self -> $newRoot")
-      newRoot ! Insert(self, 0, elem)
+
+    case CopyTo(treeNode: ActorRef) =>
+
+      //treeNode 
+      println(s"CopyTo: $self ($elem)-> $treeNode")
+      var s: Set[ActorRef] = Set()
       if (hasLeft) {
-        (subtrees get Left).get ! CopyTo(newRoot)
+        s = s + (subtrees get Left).get
       }
-      if (hasRight)
-        (subtrees get Right).get ! CopyTo(newRoot)
-    case CopyFinished => 
-      println("Copy finished from $self, will notify ${context.parent}")
-      context.parent ! CopyFinished
-    case _ => ???
+      if (hasRight) {
+        println("Copy child right")
+        (subtrees get Right).get ! CopyTo(treeNode)
+        s = s + (subtrees get Right).get
+      }
+
+      if (removed) {
+        println(s"CopyTo: Node $self removed, not coyping, will check children")
+        self ! OperationFinished(0)
+      } else {
+        s = s + self
+        treeNode ! Insert(self, 0, elem) // TODO
+
+      }
+      
+      println(s"SET: $s, entering copyying mode (false)")
+      context become copying(s, false)
+
+      if (hasLeft) {
+        println("Copy child left")
+        (subtrees get Left).get ! CopyTo(treeNode)
+      }
+      if (hasRight) {
+        println("Copy child right")
+        (subtrees get Right).get ! CopyTo(treeNode)
+      }
+
+    case CopyFinished =>
+      println(s"CopyFinished: signaled to $self from $sender  finished from $self, will notify ${context.parent}")
+      self ! PoisonPill
+    //      context.parent ! CopyFinished
+    case Some(a) =>
+      println("Recieved strange req: $a")
+      ???
 
   }
-  var childrenPending  = 0
+
+  var childrenPending = 0
 
   def buildChild(e: Int): ActorRef = context.actorOf(BinaryTreeNode.props(e, initiallyRemoved = false))
 
@@ -294,7 +324,33 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
    * `expected` is the set of ActorRefs whose replies we are waiting for,
    * `insertConfirmed` tracks whether the copy of this node to the new tree has been confirmed.
    */
-  def copying(expected: Set[ActorRef], insertConfirmed: Boolean): Receive = ???
+  def copying(expected: Set[ActorRef], insertConfirmed: Boolean): Receive = {
+    case OperationFinished(id) =>
+      println(s"[copyying mode] OperationFinished($id): $insertConfirmed <- $sender")
+      if (sender == self) {
+        println(s"Confirming current node($self) copy insert confirmation!")
+        context become copying(expected, true)
+      } else {
+        if (insertConfirmed && expected.isEmpty) {
+          println("copying(): confirmed = true, expected = (), NOTIFY PARENT -> CopyFinished")
+          context.parent ! CopyFinished
+          println("copying(): OperationFinished(): Restoring context to NORMAL")
+          context become normal
+          //       context.stop(self)
+        }
+
+        if (!expected.isEmpty) {
+          if (expected.contains(sender)) {
+            println(s"One child reported as finished, will continue")
+            context become (copying(expected - sender, false))
+            self ! OperationFinished(id)
+          } else {
+            println(s"!!!!!OperationFinished($id) while copying: expected does NOT contain $sender: $expected")
+            context become copying(expected, true)
+          }
+        }
+      }
+  }
 
   def hasRight: Boolean = hasNode(Right)
 
