@@ -93,6 +93,8 @@ class BinaryTreeSet extends Actor {
   //
   //    case _ => ???
   //  }
+  
+  var newRoot: ActorRef = null
 
   val normal: Receive = {
 
@@ -111,12 +113,16 @@ class BinaryTreeSet extends Actor {
     //      context become waitingForRemove(ca)
     case GC =>
       println("GC requested")
-      val newRoot = createRoot
+      newRoot = createRoot
       println(s"NEW ROOT: $newRoot")
       context become garbageCollecting(newRoot)
-      root ! CopyTo(newRoot)
+      newRoot ! CopyTo(root)
     //    case ContainsResult (id, res) => 
 
+    case CopyFinished => 
+      println("Copy on tree finished, switch ROOTs")
+      root ! PoisonPill
+      root = newRoot
     case Some(cmd) =>
       println(s"Set recieved unknown command: $cmd")
       ???
@@ -342,11 +348,11 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
         if (!expected.isEmpty) {
           if (expected.contains(sender)) {
             println(s"One child reported as finished, will continue")
-            context become (copying(expected - sender, false))
+            context become (copying(expected - sender, insertConfirmed))
             self ! OperationFinished(id)
           } else {
             println(s"!!!!!OperationFinished($id) while copying: expected does NOT contain $sender: $expected")
-            context become copying(expected, true)
+            context become copying(expected, insertConfirmed)
           }
         }
       }
