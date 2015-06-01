@@ -116,7 +116,7 @@ class BinaryTreeSet extends Actor {
       newRoot = createRoot
       println(s"NEW ROOT: $newRoot")
       context become garbageCollecting(newRoot)
-      newRoot ! CopyTo(root)
+      root ! CopyTo(newRoot)
     //    case ContainsResult (id, res) => 
 
     case CopyFinished => 
@@ -270,8 +270,8 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
 
         } else {
           //node has NO children, means we should responde with 
-          println(s"ContainsResult($id): No children at node $self, sender: $sender")
-          println(s"ContainsResult($id): resp=false to $act")
+          println(s"ContainsResult($act, $id, $elemc): No children at node $self, sender: $sender")
+          println(s"ContainsResult($id, false): to $act")
           act ! ContainsResult(id, false)
         }
       }
@@ -281,26 +281,34 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
       //treeNode 
       println(s"CopyTo: $self ($elem)-> $treeNode")
       var s: Set[ActorRef] = Set()
+      var c: ActorRef = null
       if (hasLeft) {
-        s = s + (subtrees get Left).get
+        c = (subtrees get Left).get
+        		println(s"Copy child $c left of $self")
+        s = s + c
       }
       if (hasRight) {
-        println("Copy child right")
-        (subtrees get Right).get ! CopyTo(treeNode)
-        s = s + (subtrees get Right).get
+        c = (subtrees get Right).get
+            println(s"Copy child $c right of $self")
+        s = s + c
       }
 
+//      if (!removed) {
+//        s = s + self
+//      }
+      
+      println(s"SET: $s, entering copyying mode ($removed)[$self]")
+      context become copying(s, removed)
+      
       if (removed) {
         println(s"CopyTo: Node $self removed, not coyping, will check children")
-        self ! OperationFinished(0)
+//        self ! OperationFinished(200)
       } else {
-        s = s + self
-        treeNode ! Insert(self, 0, elem) // TODO
+        
+        treeNode ! Insert(self, 300, elem) // TODO
 
       }
       
-      println(s"SET: $s, entering copyying mode (false)")
-      context become copying(s, false)
 
       if (hasLeft) {
         println("Copy child left")
@@ -332,7 +340,8 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
    */
   def copying(expected: Set[ActorRef], insertConfirmed: Boolean): Receive = {
     case OperationFinished(id) =>
-      println(s"[copyying mode] OperationFinished($id): $insertConfirmed <- $sender")
+      println(s"[copyying mode] OperationFinished($id): ins confirmed=$insertConfirmed <- sender: $sender")
+      println(s"[copyying mode] from: $sender to: $self, exp: $expected")
       if (sender == self) {
         println(s"Confirming current node($self) copy insert confirmation!")
         context become copying(expected, true)
@@ -367,12 +376,12 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
   }
   def insertChild(r: ActorRef, pos: Position, id: Integer, elem: Integer) = {
     if (subtrees contains pos) {
-      println(s"insertChild: Node $r already has $pos, forward insert to child")
+      println(s"insertChild($id): Node $r already has $pos, forward insert to child")
       val cur = subtrees get pos
       cur.get ! Insert(r, id, elem)
     } else {
       val c = buildChild(elem)
-      println(s"insertChild: New node $c at $pos in node $self")
+      println(s"insertChild($id): New node $c at $pos in node $self")
       subtrees = subtrees updated (pos, c)
       r ! OperationFinished(id)
     }
