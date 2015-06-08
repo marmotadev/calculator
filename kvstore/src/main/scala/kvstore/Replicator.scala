@@ -4,6 +4,7 @@ import akka.actor.Props
 import akka.actor.Actor
 import akka.actor.ActorRef
 import scala.concurrent.duration._
+import akka.actor.Cancellable
 
 object Replicator {
   case class Replicate(key: String, valueOption: Option[String], id: Long)
@@ -39,6 +40,25 @@ class Replicator(val replica: ActorRef) extends Actor {
   
   /* TODO Behavior for the Replicator. */
   def receive: Receive = {
+    case Replicate(key: String, valueOption: Option[String], id: Long) =>
+      println(s"Replicate($key, $valueOption, $id)")
+      acks += id -> (sender, Replicate(key, valueOption, id))
+      replica ! Snapshot(key, valueOption, nextSeq)
+      val canc:Cancellable = context.system.scheduler.schedule(Duration.Zero, 10.millis) {
+        println("trying scheduled retransmission")
+        if (acks.contains(id)) {
+          println(s"ack pending, retransmitting $id")
+        	replica ! Snapshot(key, valueOption, nextSeq)
+          
+        }
+        else {
+          println(s"ack got, canceling retrans")
+//          canc.cancel()
+        }
+      }
+    case SnapshotAck(key: String, seq: Long) =>
+      println(s"->SnapshotAck($key, $seq)")
+    case Some(a) => println(s" Replicator got $a")
     case _ =>
   }
 

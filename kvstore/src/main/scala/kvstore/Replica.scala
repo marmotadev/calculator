@@ -39,27 +39,76 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   /*
    * The contents of this actor is just a suggestion, you can implement it in any way you like.
    */
-  
+
   var kv = Map.empty[String, String]
   // a map from secondary replicas to replicators
   var secondaries = Map.empty[ActorRef, ActorRef]
   // the current set of replicators
   var replicators = Set.empty[ActorRef]
 
+  override def preStart() {
+    arbiter ! Join
+  }
 
   def receive = {
-    case JoinedPrimary   => context.become(leader)
-    case JoinedSecondary => context.become(replica)
+    case JoinedPrimary   => 
+      println("Became leader")
+      context.become(leader)
+    case JoinedSecondary => 
+      println("Became replica")
+      context.become(replica)
   }
 
   /* TODO Behavior for  the leader role. */
   val leader: Receive = {
-    case _ =>
+    case Insert(key, value, id) =>
+      kv += (key -> value)
+      sender ! OperationAck(id)
+    case Remove(key, id) =>
+      kv -= key
+      sender ! OperationAck(id)
+    case Get(key, id) =>
+      getVal(key, id, sender)
+    case Replicas(replicas: Set[ActorRef]) =>
+      println(s"Replicas($replicas)")
+    case Some(op) =>
+      println(s"-> Operation $op")
+    case _                                 => println("Other op2")
   }
+  def getVal(key: String, id: Long, s: ActorRef) = {
+    if (kv contains key)
+      sender ! GetResult(key, Some(kv(key)), id)
+    else
+      sender ! GetResult(key, None, id)
+  }
+  val repl = (cur: Long) => {
 
+  }
+  var curSeq: Long = -1
   /* TODO Behavior for the replica role. */
   val replica: Receive = {
-    case _ =>
+
+    case Get(key, id) =>
+      getVal(key, id, sender)
+    case Snapshot(key: String, valueOption: Option[String], seq: Long) =>
+      println(s"->SnapShot($key, $valueOption, $seq)")
+      val expected: Long = curSeq + 1
+      if (seq > expected) { /*ignored*/ }
+      else if (seq <= curSeq) {
+        /*ignored, but acknowledged */
+        sender ! SnapshotAck(key, seq)
+      } else {
+        if (valueOption.isDefined)
+          kv += key -> valueOption.get
+          else 
+            kv -= key
+          curSeq += 1
+        sender ! SnapshotAck(key, seq)
+      }
+    //TODO make real stuff
+    case Some(op) =>
+      print(s"replica $op")
+    case _ => println("Other op!")
   }
 
 }
